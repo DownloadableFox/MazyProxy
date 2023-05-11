@@ -5,11 +5,29 @@ import (
 	"net"
 )
 
+const (
+	PROXY_START_EVENT      = 0x0
+	PROXY_CONNECTION_EVENT = 0x1
+	PROXY_CLOSE_EVENT      = 0x2
+	PROXY_SEND_EVENT       = 0x3
+	PROXY_RECV_EVENT       = 0x4
+)
+
+type ProxyEvent struct {
+	proxy  *Proxy
+	client *UDPClient
+	buffer []byte
+	size   int
+}
+
+type ProxyEventFunc func(handler ProxyEvent) ([]byte, bool)
+
 type Proxy struct {
 	listenAddr   string
 	redirectAddr string
 	server       net.PacketConn
 	clients      map[string]*UDPClient
+	middlewares  map[uint8][]ProxyEventFunc
 }
 
 func NewProxy(listenAddr, redirectAddr string) (*Proxy, error) {
@@ -23,10 +41,11 @@ func NewProxy(listenAddr, redirectAddr string) (*Proxy, error) {
 		redirectAddr: redirectAddr,
 		server:       server,
 		clients:      make(map[string]*UDPClient),
+		middlewares:  make(map[uint8][]ProxyEventFunc),
 	}, nil
 }
 
-func (p *Proxy) Serve() error {
+func (p *Proxy) Start() error {
 	fmt.Printf("Listening on %s\n", p.server.LocalAddr())
 	defer p.Close()
 
@@ -44,8 +63,22 @@ func (p *Proxy) Serve() error {
 			return err
 		}
 
-		// Send the message to the client
+		decryptedBuff := NetworkDecrypt(buffer[:size])
+		if decryptedBuff[0] == PACKET_EMOJI {
+			fmt.Printf("Recieved %d bytes from %s: %v\n", size, address, decryptedBuff)
+		}
 		client.Send(buffer[:size])
+	}
+}
+
+func (p *Proxy) AddEvents(eventType uint8, handlers ...ProxyEventFunc) {
+	p.middlewares[eventType] = append(p.middlewares[eventType], handlers...)
+}
+
+func (p *Proxy) Close() {
+	p.server.Close()
+	for _, client := range p.clients {
+		client.Close()
 	}
 }
 
@@ -96,9 +129,18 @@ func (p *Proxy) handleError(address net.Addr) ErrorHandlerFunc {
 	}
 }
 
-func (p *Proxy) Close() {
-	p.server.Close()
-	for _, client := range p.clients {
-		client.Close()
+func (p *Proxy) handleEvent(eventType uint8, handler ProxyEvent) ([]byte, bool) {
+	middlewares, ok := p.middlewares[eventType]
+	if !ok {
+		return nil, true
 	}
+
+	for _, middleware := range middlewares {
+		buffer, ok := middleware(handler)
+		if !ok {
+			return buffer, false
+		}
+	}
+
+	return nil, true
 }

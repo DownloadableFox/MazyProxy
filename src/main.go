@@ -11,7 +11,7 @@ func main() {
 		panic(err)
 	}
 
-	if err := proxy.Serve(); err != nil {
+	if err := proxy.Start(); err != nil {
 		panic(err)
 	}
 }

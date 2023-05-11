@@ -1,4 +1,4 @@
-name = mazy-proxy
+name = mazy-proxy.exe
 
 build:
 	@go build -o bin/$(name) src/**.go
