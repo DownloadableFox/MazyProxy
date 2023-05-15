@@ -1,17 +1,22 @@
 package main
 
-func main() {
-	const (
-		listenAddr   = ":1337"
-		redirectAddr = "192.168.1.101:1337"
-	)
+const (
+	listenAddr   = "localhost:8080"
+	redirectAddr = "localhost:8081"
+)
 
-	proxy, err := NewProxy(listenAddr, redirectAddr)
+func main() {
+	// Create server
+	server, err := NewUDPServer(listenAddr)
 	if err != nil {
 		panic(err)
 	}
 
-	if err := proxy.Start(); err != nil {
-		panic(err)
-	}
+	// Create proxy
+	proxy := NewProxy(server, func() (Client, error) {
+		return NewUDPClient(redirectAddr)
+	})
+	defer proxy.Close()
+
+	proxy.Serve()
 }

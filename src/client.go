@@ -1,13 +1,22 @@
 package main
 
-import "net"
+import (
+	"net"
+)
 
-type MessageHandlerFunc func(buf []byte, size int)
-type ErrorHandlerFunc func(err error)
+type ClientMessageHandler func(buf []byte)
+type ClientErrorHandler func(err error)
+
+type Client interface {
+	Connect(ClientMessageHandler, ClientErrorHandler)
+	Send([]byte) error
+	Close()
+}
 
 type UDPClient struct {
 	udpAddr *net.UDPAddr
 	conn    *net.UDPConn
+	closed  bool
 }
 
 func NewUDPClient(serverAddr string) (*UDPClient, error) {
@@ -16,32 +25,30 @@ func NewUDPClient(serverAddr string) (*UDPClient, error) {
 		return nil, err
 	}
 
+	conn, err := net.DialUDP("udp", nil, udpAddr)
+	if err != nil {
+		return nil, err
+	}
+
 	return &UDPClient{
 		udpAddr: udpAddr,
+		conn:    conn,
 	}, nil
 }
 
-func (c *UDPClient) Connect(messageHandler MessageHandlerFunc, errorhandler ErrorHandlerFunc) error {
-	conn, err := net.DialUDP("udp", nil, c.udpAddr)
-	if err != nil {
-		return err
-	}
+func (c *UDPClient) Connect(messageHandler ClientMessageHandler, errorhandler ClientErrorHandler) {
+	defer c.conn.Close()
 
-	c.conn = conn
-
-	go func() {
-		for {
-			buf := make([]byte, 1024)
-			size, err := conn.Read(buf)
-			if err != nil {
-				errorhandler(err)
-				break
-			}
-			messageHandler(buf, size)
+	buff := make([]byte, 1024)
+	for !c.closed {
+		n, err := c.conn.Read(buff)
+		if err != nil {
+			errorhandler(err)
+			break
 		}
-	}()
 
-	return nil
+		messageHandler(buff[:n])
+	}
 }
 
 func (c *UDPClient) Send(buf []byte) error {
@@ -54,5 +61,5 @@ func (c *UDPClient) Send(buf []byte) error {
 }
 
 func (c *UDPClient) Close() {
-	c.conn.Close()
+	c.closed = true
 }
