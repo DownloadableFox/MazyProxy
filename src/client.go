@@ -11,6 +11,7 @@ type Client interface {
 	Connect(ClientMessageHandler, ClientErrorHandler)
 	Send([]byte) error
 	Close()
+	GetAddr() net.Addr
 }
 
 type UDPClient struct {
@@ -62,4 +63,8 @@ func (c *UDPClient) Send(buf []byte) error {
 
 func (c *UDPClient) Close() {
 	c.closed = true
+}
+
+func (c *UDPClient) GetAddr() net.Addr {
+	return c.udpAddr
 }

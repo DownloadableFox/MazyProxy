@@ -18,5 +18,9 @@ func main() {
 	})
 	defer proxy.Close()
 
+	// Register middlewares
+	RegisterMiddlewares(proxy)
+
+	// Start proxy
 	proxy.Serve()
 }

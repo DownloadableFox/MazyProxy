@@ -5,11 +5,18 @@ import (
 	"net"
 )
 
+const (
+	TO_CLIENT = 0
+	TO_SERVER = 1
+)
+
+type ProxyMiddleware func(*Proxy, Client, []byte) bool
 type ClientGenerator func() (Client, error)
 
 type Proxy struct {
 	server          Server
 	clients         map[string]Client
+	middlewares     map[uint8][]ProxyMiddleware
 	clientGenerator ClientGenerator
 }
 
@@ -17,6 +24,7 @@ func NewProxy(server Server, clientGenerator ClientGenerator) *Proxy {
 	return &Proxy{
 		server:          server,
 		clients:         make(map[string]Client),
+		middlewares:     make(map[uint8][]ProxyMiddleware),
 		clientGenerator: clientGenerator,
 	}
 }
@@ -68,12 +76,31 @@ func (p *Proxy) CloseClient(address net.Addr) {
 	}
 }
 
+func (p *Proxy) AddMiddleware(direction uint8, middleware ProxyMiddleware) {
+	p.middlewares[direction] = append(p.middlewares[direction], middleware)
+}
+
 // Handlers
+func (p *Proxy) executeMiddlewares(direction uint8, client Client, buf []byte) bool {
+	for _, middleware := range p.middlewares[direction] {
+		if !middleware(p, client, buf) {
+			return false
+		}
+	}
+
+	return true
+}
+
 func (p *Proxy) handleServerMessage() ServerMessageHandler {
 	return func(address net.Addr, buf []byte) {
 		client, err := p.GetClient(address)
 		if err != nil {
 			fmt.Printf("An error occurred with client %s, error: %v\n", address, err)
+			return
+		}
+
+		// Execute middlewares
+		if !p.executeMiddlewares(TO_SERVER, client, buf) {
 			return
 		}
 
@@ -90,6 +117,17 @@ func (p *Proxy) handleServerError() ServerErrorHandler {
 
 func (p *Proxy) handleClientMessage(address net.Addr) ClientMessageHandler {
 	return func(buf []byte) {
+		client, err := p.GetClient(address)
+		if err != nil {
+			fmt.Printf("An error occurred with client %s, error: %v\n", address, err)
+			return
+		}
+
+		// Execute middlewares
+		if !p.executeMiddlewares(TO_CLIENT, client, buf) {
+			return
+		}
+
 		p.server.Send(address, buf)
 	}
 }
